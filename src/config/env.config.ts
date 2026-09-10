@@ -3,6 +3,10 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+if (process.env.DATABASE_URL) {
+  process.env.DATABASE_CONNECTION_URI = process.env.DATABASE_URL;
+}
+
 export type HttpServer = {
   NAME: string;
   TYPE: 'http' | 'https';

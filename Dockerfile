@@ -21,7 +21,6 @@ COPY ./src ./src
 COPY ./public ./public
 COPY ./prisma ./prisma
 COPY ./manager ./manager
-COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
 
@@ -31,7 +30,7 @@ ENV DATABASE_PROVIDER=postgresql
 RUN cp -r ./prisma/postgresql-migrations ./prisma/migrations && cp ./prisma/postgresql-schema.prisma ./prisma/schema.prisma
 
 # 2. Roda a geracao dos tipos Prisma explicitando o schema seguro (bypassa o dotenvx)
-RUN npx prisma generate --schema ./prisma/schema.prisma
+RUN DATABASE_CONNECTION_URI=postgresql://build:build@localhost:5432/build npx prisma generate --schema ./prisma/schema.prisma
 
 ARG LICENSE_ENDPOINT_ENCODED
 ARG LICENSE_ENDPOINT_XOR_KEY
@@ -57,7 +56,6 @@ COPY --from=builder /evolution/dist ./dist
 COPY --from=builder /evolution/prisma ./prisma
 COPY --from=builder /evolution/manager ./manager
 COPY --from=builder /evolution/public ./public
-COPY --from=builder /evolution/.env ./.env
 COPY --from=builder /evolution/Docker ./Docker
 COPY --from=builder /evolution/runWithProvider.js ./runWithProvider.js
 COPY --from=builder /evolution/tsup.config.ts ./tsup.config.ts
@@ -66,6 +64,5 @@ ENV DOCKER_ENV=true
 
 EXPOSE 8080
 
-# 3. Arrancamos o ENTRYPOINT com deploy_database.sh e assumimos o controle via CMD.
-# Isso garante que a string publica que voce cadastrou no painel seja finalmente lida.
-CMD ["sh", "-c", "npx prisma migrate deploy --schema ./prisma/schema.prisma && npm run start:prod"]
+# 3. Executa as migrations com a URL fornecida pelo ambiente e inicia a API.
+CMD ["sh", "-c", "npx prisma migrate deploy && npm run start:prod"]

@@ -2,7 +2,11 @@ const dotenv = require('dotenv');
 const { execSync } = require('child_process');
 const { existsSync } = require('fs');
 
-dotenv.config();
+dotenv.config({ override: false });
+
+if (process.env.DATABASE_URL) {
+  process.env.DATABASE_CONNECTION_URI = process.env.DATABASE_URL;
+}
 
 const { DATABASE_PROVIDER } = process.env;
 const databaseProviderDefault = DATABASE_PROVIDER ?? 'postgresql';
