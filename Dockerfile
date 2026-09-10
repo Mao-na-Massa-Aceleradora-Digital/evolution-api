@@ -27,10 +27,11 @@ COPY ./runWithProvider.js ./
 
 COPY ./Docker ./Docker
 
-RUN chmod +x ./Docker/scripts/* && dos2unix ./Docker/scripts/*
-
 ENV DATABASE_PROVIDER=postgresql
-RUN ./Docker/scripts/generate_database.sh
+# 1. Copia o schema diretamente
+RUN cp -r ./prisma/postgresql-migrations ./prisma/migrations && cp ./prisma/postgresql-schema.prisma ./prisma/schema.prisma
+# 2. Roda a gera o dos tipos Prisma sem passar pelo script que esconde as vari veis
+RUN npx prisma generate
 
 # Licensing endpoint is XOR-encoded into the bundle by tsup `define`. Pass the
 # pair via build-args (NEVER as runtime env vars) to keep the URL out of the
