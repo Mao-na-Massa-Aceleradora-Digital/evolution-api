@@ -228,7 +228,30 @@ SERVER_PORT=8080
 AUTHENTICATION_API_KEY=<chave de licenciamento valida>
 ```
 
-As demais variaveis dependem dos recursos habilitados, por exemplo Redis, S3, RabbitMQ, SQS, NATS, Kafka, Chatwoot, Typebot e webhooks.
+Para uma instancia que efetivamente conecta no WhatsApp (QR code) e persiste dados para integracoes externas (ex.: help.ia lendo a tabela `Message` direto no Postgres), tambem sao obrigatorias:
+
+```text
+# Sem isso o createClient() quebra com "Cannot read properties of undefined (reading 'state')"
+# ao gerar o QR code (defineAuthState() nao retorna nada sem pelo menos uma dessas duas):
+DATABASE_SAVE_DATA_INSTANCE=true
+# e/ou
+CACHE_REDIS_ENABLED=true
+CACHE_REDIS_SAVE_INSTANCES=true
+
+# Sem isso a Evolution nao grava a mensagem recebida na tabela "Message",
+# quebrando qualquer integracao externa que dependa de consultar essa tabela
+# (ex.: recuperar o messageSecret para decriptar uma edicao de mensagem):
+DATABASE_SAVE_DATA_NEW_MESSAGE=true
+DATABASE_SAVE_MESSAGE_UPDATE=true
+DATABASE_SAVE_DATA_CONTACTS=true
+DATABASE_SAVE_DATA_CHATS=true
+DATABASE_SAVE_DATA_HISTORIC=true
+DATABASE_SAVE_DATA_LABELS=true
+```
+
+> **Atencao a nomes de variavel legados**: instalacoes antigas desta API (RC anteriores) usavam `DATABASE_SAVE_MESSAGES` e `STORE_MESSAGES` para controlar o salvamento de mensagens novas. Esta versao **nao reconhece mais esses nomes** — o parametro correto e `DATABASE_SAVE_DATA_NEW_MESSAGE`. Copiar variaveis de um ambiente antigo direto para um novo sem revisar os nomes reproduz silenciosamente esse tipo de regressao (o valor antigo e apenas ignorado, sem erro).
+
+As demais variaveis dependem dos recursos habilitados, por exemplo S3, RabbitMQ, SQS, NATS, Kafka, Chatwoot, Typebot e webhooks.
 
 Nao e necessario cadastrar todas as variaveis do arquivo de exemplo. Variaveis opcionais podem permanecer ausentes quando o recurso correspondente esta desabilitado ou possui default seguro.
 
@@ -258,13 +281,15 @@ Esses comandos pertencem ao fluxo multi-provider tradicional e usam `runWithProv
 7. Executar `prisma migrate deploy --config ./prisma.config.ts` somente no runtime.
 8. Confirmar `SERVER_TYPE=http` e `SERVER_PORT=8080` para um servico HTTP comum.
 9. Deixar o Start Command do Railway vazio ou equivalente ao `CMD` da imagem.
-10. Fazer deploy e procurar nesta ordem:
+10. Copiar (nao presumir) as variaveis `DATABASE_SAVE_DATA_*` / `CACHE_REDIS_*` de um ambiente de referencia, conferindo se os **nomes** ainda sao validos nesta versao (ver secao "Configuracao recomendada no Railway").
+11. Fazer deploy e procurar nesta ordem:
    - `Loaded Prisma config from prisma.config.ts`;
    - datasource apontando para o banco correto;
    - `No pending migrations to apply` ou migrations aplicadas;
    - `HTTP - ON: 8080`;
    - `Redis ready`, quando Redis estiver habilitado.
-11. Ativar a instancia no manager ou fornecer uma chave de licenciamento valida.
+12. Ativar a instancia no manager ou fornecer uma chave de licenciamento valida.
+13. Criar uma instancia pelo Manager, conectar via QR code e testar envio/recebimento de texto, midia (imagem/audio/video) e edicao de mensagem antes de considerar o ambiente validado.
 
 ## Regras de prevencao
 
@@ -298,3 +323,43 @@ Global API key not accepted by licensing server: invalid signature (HTTP 401)
 ```
 
 Esse aviso deve ser resolvido no fluxo de licenciamento, nao no Dockerfile, no Prisma ou nas migrations.
+
+## Sessao de validacao do fix PR #2708 (branch `feat/quoted-context-canary`)
+
+Contexto: um ambiente "canary" foi criado no Railway (banco Postgres e Redis proprios, apontados por um backend externo — help.ia) especificamente para validar se o [PR #2708](https://github.com/evolution-foundation/evolution-api/pull/2708) (preservacao do `contextInfo` de reply/quote em mensagens de texto) resolve um bug ja conhecido em producao, antes de promover o fix para a versao oficial. Durante essa validacao, quatro problemas foram encontrados e corrigidos.
+
+### 1. Manager UI enviava `name`, API esperava `instanceName`
+
+**Sintoma**: criar instancia pelo Manager retornava 500 do Prisma (`Argument \`name\` is missing`) e, apos um primeiro ajuste, 400 (`The "instanceName" cannot be empty`).
+
+**Causa raiz**: em `src/api/abstract/abstract.router.ts`, a funcao `sanitizeUntrustedInput` remove os campos `instanceName`/`instanceId` de qualquer body recebido, como protecao contra spoofing em rotas onde esse valor deveria vir da URL (`:instanceName`). Só que a rota `POST /instance/create` **nao tem** `:instanceName` na URL — o nome so pode vir do body — entao esse filtro de seguranca removia o proprio dado necessario antes de chegar no controller.
+
+**Correcao**: `sanitizeUntrustedInput` passou a aceitar uma lista de campos protegidos por chamada; para `/instance/create` apenas `instanceId` continua protegido (gerado pelo servidor), liberando `instanceName` do body. Tambem foi adicionado um fallback no controller (`instanceData.name` como alias) para tolerar builds do Manager que usem o nome de campo antigo.
+
+### 2. QR code nao carregava — `defineAuthState()` retornando `undefined`
+
+**Sintoma**: `TypeError: Cannot read properties of undefined (reading 'state')` em `createClient()`, logo apos clicar para conectar a instancia.
+
+**Causa raiz**: faltavam as variaveis `DATABASE_SAVE_DATA_INSTANCE` e/ou `CACHE_REDIS_SAVE_INSTANCES` no servico Railway da Evolution canary. Sem nenhuma das duas, `defineAuthState()` nao retorna nada, e `this.instance.authState.state.creds` quebra.
+
+**Correcao**: adicionar `DATABASE_SAVE_DATA_INSTANCE=true` (e conferir `CACHE_REDIS_ENABLED`/`CACHE_REDIS_SAVE_INSTANCES` se for usar Redis para sessoes) nas variaveis do servico.
+
+### 3. Edicao de mensagem (MESSAGE_UPDATE) parou de funcionar no help.ia
+
+**Sintoma**: o help.ia nao conseguia mais recuperar o `messageSecret` da mensagem original (consulta direta na tabela `Message` do Postgres da Evolution) para decriptar edicoes vindas do WhatsApp Web/mobile. Log: `Mensagem original ... nao encontrada na tabela "Message"`.
+
+**Causa raiz**: **nao foi uma regressao de codigo**. O ambiente de producao antigo (RC) usava as variaveis `DATABASE_SAVE_MESSAGES=true` e `STORE_MESSAGES=true` para habilitar o salvamento de mensagens recebidas. Essas variaveis **nao existem mais** nesta versao — foram renomeadas para `DATABASE_SAVE_DATA_NEW_MESSAGE`. Como o ambiente canary replicou as variaveis do ambiente antigo sem revisar os nomes, o parametro novo ficou com o valor padrao (`false`) e a Evolution parou de persistir mensagens na tabela `Message`.
+
+**Correcao**: adicionar `DATABASE_SAVE_DATA_NEW_MESSAGE=true` (o `DATABASE_SAVE_MESSAGE_UPDATE=true` ja estava correto, pois esse nome nao mudou). As variaveis antigas (`DATABASE_SAVE_MESSAGES`, `STORE_MESSAGES`) podem permanecer sem causar dano — sao apenas ignoradas — mas devem ser removidas na limpeza final para evitar confusao.
+
+### 4. Envio de audio/video falhando com proxy habilitado ("Media upload failed on all hosts")
+
+**Sintoma**: envio de audio PTT retornava 400 com `Error: Media upload failed on all hosts`; envio de video excedia o timeout do cliente (35s) sem completar em tempo habil.
+
+**Causa raiz**: o Baileys `7.0.0-rc13` mudou a implementacao interna de upload de midia. Em runtime Node.js (o nosso caso — nao Bun/Deno), o upload usa os modulos nativos `https`/`http` com um **Agent tradicional do Node** (opcao `fetchAgent` do `SocketConfig`, repassada como `agent` para `http.request`). So em runtimes Bun/Deno/browser e que o Baileys usa `fetch` com um dispatcher Undici. O codigo em `createClient()` (whatsapp.baileys.service.ts) passava `fetchAgent: makeProxyAgentUndici(...)` — um `ProxyAgent` do Undici, incompativel com a API de Agent do Node — entao todo upload de midia com proxy habilitado falhava silenciosamente em todos os hosts.
+
+**Correcao**: `fetchAgent` passou a usar `makeProxyAgent(...)` (o mesmo Agent tradicional ja usado em `agent`), compativel com o caminho de upload via `https`/`http` nativo usado pelo Baileys em Node.js. Esse bug so se manifesta quando a instancia tem um proxy configurado (`this.localProxy?.enabled`).
+
+### Licao geral desta sessao
+
+A maior parte dos problemas encontrados ao subir esta versao mais nova nao foram bugs de codigo, e sim **variaveis de ambiente renomeadas ou omitidas** ao migrar de um ambiente antigo (RC) para este mais novo. Ao clonar configuracao de um ambiente Railway existente para um novo servico/versao, sempre conferir se os **nomes** das variaveis ainda sao os esperados pela versao atual do codigo (`grep` por `process.env` em `src/config/env.config.ts` e nos servicos relevantes), em vez de assumir que copiar os valores basta.
