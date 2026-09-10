@@ -15,7 +15,6 @@ COPY ./tsup.config.ts ./
 COPY ./patches ./patches
 
 RUN npm ci --silent
-
 RUN npx patch-package
 
 COPY ./src ./src
@@ -24,20 +23,16 @@ COPY ./prisma ./prisma
 COPY ./manager ./manager
 COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
-
 COPY ./Docker ./Docker
 
 ENV DATABASE_PROVIDER=postgresql
+
 # 1. Copia o schema diretamente
 RUN cp -r ./prisma/postgresql-migrations ./prisma/migrations && cp ./prisma/postgresql-schema.prisma ./prisma/schema.prisma
-# 2. Roda a gera o dos tipos Prisma sem passar pelo script que esconde as vari veis
-RUN npx prisma generate
 
-# Licensing endpoint is XOR-encoded into the bundle by tsup `define`. Pass the
-# pair via build-args (NEVER as runtime env vars) to keep the URL out of the
-# compiled JavaScript as a plain literal. Generate them with
-# `node tools/encode-url.js <url>`. Leaving them empty is OK for non-release
-# builds — the dev fallback in src/licensing/endpoint.ts kicks in.
+# 2. Roda a geracao dos tipos Prisma explicitando o schema seguro
+RUN npx prisma generate --schema ./prisma/schema.prisma
+
 ARG LICENSE_ENDPOINT_ENCODED
 ARG LICENSE_ENDPOINT_XOR_KEY
 ENV LICENSE_ENDPOINT_ENCODED=${LICENSE_ENDPOINT_ENCODED}
@@ -57,7 +52,6 @@ WORKDIR /evolution
 
 COPY --from=builder /evolution/package.json ./package.json
 COPY --from=builder /evolution/package-lock.json ./package-lock.json
-
 COPY --from=builder /evolution/node_modules ./node_modules
 COPY --from=builder /evolution/dist ./dist
 COPY --from=builder /evolution/prisma ./prisma
@@ -72,4 +66,5 @@ ENV DOCKER_ENV=true
 
 EXPOSE 8080
 
-ENTRYPOINT ["/bin/bash", "-c", ". ./Docker/scripts/deploy_database.sh && npm run start:prod" ]
+# 3. Arrancamos o deploy_database.sh e assumimos o controle da migracao via CMD
+CMD ["sh", "-c", "npx prisma migrate deploy --schema ./prisma/schema.prisma && npm run start:prod"]
