@@ -36,8 +36,6 @@ export class InstanceController {
 
   public async createInstance(instanceData: InstanceDto) {
     try {
-      this.logger.warn(`DEBUG createInstance payload: ${JSON.stringify(instanceData)}`);
-
       // Manager UI legado envia "name" em vez de "instanceName"
       instanceData.instanceName = (instanceData.instanceName ?? (instanceData as any).name)?.trim();
 
