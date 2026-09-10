@@ -30,7 +30,7 @@ ENV DATABASE_PROVIDER=postgresql
 # 1. Copia o schema diretamente
 RUN cp -r ./prisma/postgresql-migrations ./prisma/migrations && cp ./prisma/postgresql-schema.prisma ./prisma/schema.prisma
 
-# 2. Roda a geracao dos tipos Prisma explicitando o schema seguro
+# 2. Roda a geracao dos tipos Prisma explicitando o schema seguro (bypassa o dotenvx)
 RUN npx prisma generate --schema ./prisma/schema.prisma
 
 ARG LICENSE_ENDPOINT_ENCODED
@@ -66,5 +66,6 @@ ENV DOCKER_ENV=true
 
 EXPOSE 8080
 
-# 3. Arrancamos o deploy_database.sh e assumimos o controle da migracao via CMD
+# 3. Arrancamos o ENTRYPOINT com deploy_database.sh e assumimos o controle via CMD.
+# Isso garante que a string publica que voce cadastrou no painel seja finalmente lida.
 CMD ["sh", "-c", "npx prisma migrate deploy --schema ./prisma/schema.prisma && npm run start:prod"]
