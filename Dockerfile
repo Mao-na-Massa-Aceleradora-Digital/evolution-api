@@ -12,6 +12,7 @@ WORKDIR /evolution
 COPY ./package*.json ./
 COPY ./tsconfig.json ./
 COPY ./tsup.config.ts ./
+COPY ./prisma.config.ts ./
 COPY ./patches ./patches
 
 RUN npm ci --silent
@@ -51,6 +52,7 @@ WORKDIR /evolution
 
 COPY --from=builder /evolution/package.json ./package.json
 COPY --from=builder /evolution/package-lock.json ./package-lock.json
+COPY --from=builder /evolution/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /evolution/node_modules ./node_modules
 COPY --from=builder /evolution/dist ./dist
 COPY --from=builder /evolution/prisma ./prisma
@@ -65,4 +67,4 @@ ENV DOCKER_ENV=true
 EXPOSE 8080
 
 # 3. Executa as migrations com a URL fornecida pelo ambiente e inicia a API.
-CMD ["sh", "-c", "npx prisma migrate deploy && npm run start:prod"]
+CMD ["sh", "-c", "npx prisma migrate deploy --config ./prisma.config.ts && npm run start:prod"]
