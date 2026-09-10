@@ -36,7 +36,12 @@ export class InstanceController {
 
   public async createInstance(instanceData: InstanceDto) {
     try {
-      instanceData.instanceName = instanceData.instanceName?.trim();
+      // Manager UI legado envia "name" em vez de "instanceName"
+      instanceData.instanceName = (instanceData.instanceName ?? (instanceData as any).name)?.trim();
+
+      if (!instanceData.instanceName) {
+        throw new BadRequestException('The "instanceName" cannot be empty');
+      }
 
       const instance = channelController.init(instanceData, {
         configService: this.configService,

@@ -27,6 +27,7 @@ export const instanceSchema: JSONSchema7 = {
   properties: {
     // Instance
     instanceName: { type: 'string' },
+    name: { type: 'string' }, // alias legado enviado pelo Manager UI
     token: { type: 'string' },
     number: { type: 'string', pattern: '^\\d+[\\.@\\w-]+' },
     businessId: { type: 'string' },
