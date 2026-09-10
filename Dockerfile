@@ -47,6 +47,8 @@ RUN apk update && \
 
 ENV TZ=America/Sao_Paulo
 ENV DOCKER_ENV=true
+ENV SERVER_TYPE=http
+ENV SERVER_PORT=8080
 
 WORKDIR /evolution
 
