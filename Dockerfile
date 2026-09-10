@@ -29,6 +29,7 @@ COPY ./Docker ./Docker
 
 RUN chmod +x ./Docker/scripts/* && dos2unix ./Docker/scripts/*
 
+ENV DATABASE_PROVIDER=postgresql
 RUN ./Docker/scripts/generate_database.sh
 
 # Licensing endpoint is XOR-encoded into the bundle by tsup `define`. Pass the
