@@ -4945,9 +4945,14 @@ export class BaileysStartupService extends ChannelStartupService {
 
       let groups = [];
       for (const group of fetch) {
-        // Um grupo com metadata quebrada não pode derrubar a listagem inteira; pula e segue.
+        // Um grupo com metadata quebrada (ou profilePicture travado no socket) não pode derrubar a listagem inteira; pula e segue.
         try {
-          const picture = await this.profilePicture(group?.id);
+          const picture = await Promise.race([
+            this.profilePicture(group?.id),
+            new Promise<{ wuid: string; profilePictureUrl: null }>((resolve) =>
+              setTimeout(() => resolve({ wuid: group?.id, profilePictureUrl: null }), 8000),
+            ),
+          ]);
 
           const result = {
             id: group.id,
