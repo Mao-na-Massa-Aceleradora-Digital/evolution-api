@@ -5041,14 +5041,29 @@ export class BaileysStartupService extends ChannelStartupService {
     }
 
     try {
-      const metadata = await this.client.groupMetadata(id.groupJid);
-      const participants = metadata?.participants ?? [];
-
-      if (participants.length === 0) {
+      // 1. Envolve a chamada do Baileys em try/catch individual para isolar o erro de "null to object"
+      let metadata;
+      try {
+        metadata = await this.client.groupMetadata(id.groupJid);
+      } catch (metaErr: any) {
+        this.logger.warn(`[Baileys Service] Falha ao extrair groupMetadata para ${id.groupJid}: ${metaErr?.message || 'Erro Desconhecido'}`);
         return { participants: [] };
       }
 
-      const participantIds = participants.filter((p) => !!p?.id).map((p) => p.id);
+      // 2. Proteção agressiva contra undefined
+      if (!metadata) {
+        return { participants: [] };
+      }
+
+      const participants = metadata.participants || [];
+
+      if (!Array.isArray(participants) || participants.length === 0) {
+        return { participants: [] };
+      }
+
+      // 3. Filtro seguro de nulos
+      const validParticipants = participants.filter((p) => p && typeof p === 'object' && !!p.id);
+      const participantIds = validParticipants.map((p) => p.id);
 
       const contacts = participantIds.length
         ? await this.prismaRepository.contact.findMany({
@@ -5056,27 +5071,24 @@ export class BaileysStartupService extends ChannelStartupService {
           })
         : [];
 
-      const parsedParticipants = participants
-        .filter((participant) => !!participant?.id)
-        .map((participant) => {
-          const contact = (contacts ?? []).find((c) => c.remoteJid === participant.id);
-          return {
-            ...participant,
-            name: participant.name ?? contact?.pushName,
-            imgUrl: participant.imgUrl ?? contact?.profilePicUrl,
-          };
-        });
+      // 4. Mapeamento final com Optional Chaining em todos os níveis
+      const parsedParticipants = validParticipants.map((participant) => {
+        const contact = contacts.find((c) => c.remoteJid === participant.id);
+        return {
+          ...participant,
+          name: participant.name || contact?.pushName || null,
+          imgUrl: participant.imgUrl || contact?.profilePicUrl || null,
+        };
+      });
 
-      const usersContacts = parsedParticipants.filter((c) => c.id?.includes('@s.whatsapp'));
+      const usersContacts = parsedParticipants.filter((c) => c.id && c.id.includes('@s.whatsapp'));
       if (usersContacts.length > 0) {
         await saveOnWhatsappCache(usersContacts.map((c) => ({ remoteJid: c.id })));
       }
 
       return { participants: parsedParticipants };
-    } catch (error) {
-      console.error(error);
-      // Falha ao buscar metadados (grupo indisponível, Baileys sem cache, Prisma indisponível, etc.):
-      // devolve lista vazia em vez de propagar 500.
+    } catch (error: any) {
+      this.logger.error(`[Baileys Service] Erro cr tico em findParticipants para ${id.groupJid}: ${error?.message || error}`);
       return { participants: [] };
     }
   }
