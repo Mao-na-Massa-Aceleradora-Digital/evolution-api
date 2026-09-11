@@ -4943,43 +4943,56 @@ export class BaileysStartupService extends ChannelStartupService {
       const allGroups = await this?.client?.groupFetchAllParticipating();
       const fetch = allGroups ? Object.values(allGroups) : [];
 
-      let groups = [];
-      for (const group of fetch) {
-        // Um grupo com metadata quebrada (ou profilePicture travado no socket) não pode derrubar a listagem inteira; pula e segue.
-        try {
-          const picture = await Promise.race([
-            this.profilePicture(group?.id),
-            new Promise<{ wuid: string; profilePictureUrl: null }>((resolve) =>
-              setTimeout(() => resolve({ wuid: group?.id, profilePictureUrl: null }), 8000),
-            ),
-          ]);
+      // profilePicture faz uma ida à rede por grupo; processar sequencialmente com centenas
+      // de grupos passa de minutos e estoura o timeout de qualquer cliente HTTP normal.
+      const CONCURRENCY = 15;
+      const groups: any[] = [];
 
-          const result = {
-            id: group.id,
-            subject: group.subject,
-            subjectOwner: group.subjectOwner,
-            subjectTime: group.subjectTime,
-            pictureUrl: picture?.profilePictureUrl,
-            size: group.participants?.length ?? 0,
-            creation: group.creation,
-            owner: group.owner,
-            desc: group.desc,
-            descId: group.descId,
-            restrict: group.restrict,
-            announce: group.announce,
-            isCommunity: group.isCommunity,
-            isCommunityAnnounce: group.isCommunityAnnounce,
-            linkedParent: group.linkedParent,
-          };
+      for (let i = 0; i < fetch.length; i += CONCURRENCY) {
+        const batch = fetch.slice(i, i + CONCURRENCY);
 
-          if (getParticipants.getParticipants == 'true') {
-            result['participants'] = group.participants ?? [];
-          }
+        const batchResults = await Promise.all(
+          batch.map(async (group) => {
+            // Um grupo com metadata quebrada (ou profilePicture travado no socket) não pode derrubar o lote inteiro; pula e segue.
+            try {
+              const picture = await Promise.race([
+                this.profilePicture(group?.id),
+                new Promise<{ wuid: string; profilePictureUrl: null }>((resolve) =>
+                  setTimeout(() => resolve({ wuid: group?.id, profilePictureUrl: null }), 8000),
+                ),
+              ]);
 
-          groups = [...groups, result];
-        } catch (groupError) {
-          console.error(`Error processing group ${group?.id}:`, groupError);
-        }
+              const result = {
+                id: group.id,
+                subject: group.subject,
+                subjectOwner: group.subjectOwner,
+                subjectTime: group.subjectTime,
+                pictureUrl: picture?.profilePictureUrl,
+                size: group.participants?.length ?? 0,
+                creation: group.creation,
+                owner: group.owner,
+                desc: group.desc,
+                descId: group.descId,
+                restrict: group.restrict,
+                announce: group.announce,
+                isCommunity: group.isCommunity,
+                isCommunityAnnounce: group.isCommunityAnnounce,
+                linkedParent: group.linkedParent,
+              };
+
+              if (getParticipants.getParticipants == 'true') {
+                result['participants'] = group.participants ?? [];
+              }
+
+              return result;
+            } catch (groupError) {
+              console.error(`Error processing group ${group?.id}:`, groupError);
+              return null;
+            }
+          }),
+        );
+
+        groups.push(...batchResults.filter((result) => result !== null));
       }
 
       return groups;
