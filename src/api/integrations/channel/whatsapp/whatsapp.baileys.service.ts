@@ -2010,12 +2010,8 @@ export class BaileysStartupService extends ChannelStartupService {
         const resolvedParticipants = participantsUpdate.participants.map((participantId) => {
           const participantData = groupParticipants.participants.find((p) => p.id === participantId);
 
-          let phoneNumber: string;
-          if (participantData?.phoneNumber) {
-            phoneNumber = participantData.phoneNumber;
-          } else {
-            phoneNumber = normalizePhoneNumber(participantId);
-          }
+          // findParticipants nunca retorna "phoneNumber" (só id/admin/name/imgUrl); sempre normaliza a partir do JID.
+          const phoneNumber = normalizePhoneNumber(participantId);
 
           return {
             jid: participantId,
