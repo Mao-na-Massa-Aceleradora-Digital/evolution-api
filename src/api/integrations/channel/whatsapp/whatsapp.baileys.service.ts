@@ -4921,15 +4921,15 @@ export class BaileysStartupService extends ChannelStartupService {
         subject: group.subject,
         subjectOwner: group.subjectOwner,
         subjectTime: group.subjectTime,
-        pictureUrl: picture.profilePictureUrl,
-        size: group.participants.length,
+        pictureUrl: picture?.profilePictureUrl,
+        size: group.participants?.length ?? 0,
         creation: group.creation,
         owner: group.owner,
         desc: group.desc,
         descId: group.descId,
         restrict: group.restrict,
         announce: group.announce,
-        participants: group.participants,
+        participants: group.participants ?? [],
         isCommunity: group.isCommunity,
         isCommunityAnnounce: group.isCommunityAnnounce,
         linkedParent: group.linkedParent,
@@ -4943,38 +4943,49 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   public async fetchAllGroups(getParticipants: GetParticipant) {
-    const fetch = Object.values(await this?.client?.groupFetchAllParticipating());
+    try {
+      const allGroups = await this?.client?.groupFetchAllParticipating();
+      const fetch = allGroups ? Object.values(allGroups) : [];
 
-    let groups = [];
-    for (const group of fetch) {
-      const picture = await this.profilePicture(group.id);
+      let groups = [];
+      for (const group of fetch) {
+        // Um grupo com metadata quebrada não pode derrubar a listagem inteira; pula e segue.
+        try {
+          const picture = await this.profilePicture(group?.id);
 
-      const result = {
-        id: group.id,
-        subject: group.subject,
-        subjectOwner: group.subjectOwner,
-        subjectTime: group.subjectTime,
-        pictureUrl: picture?.profilePictureUrl,
-        size: group.participants.length,
-        creation: group.creation,
-        owner: group.owner,
-        desc: group.desc,
-        descId: group.descId,
-        restrict: group.restrict,
-        announce: group.announce,
-        isCommunity: group.isCommunity,
-        isCommunityAnnounce: group.isCommunityAnnounce,
-        linkedParent: group.linkedParent,
-      };
+          const result = {
+            id: group.id,
+            subject: group.subject,
+            subjectOwner: group.subjectOwner,
+            subjectTime: group.subjectTime,
+            pictureUrl: picture?.profilePictureUrl,
+            size: group.participants?.length ?? 0,
+            creation: group.creation,
+            owner: group.owner,
+            desc: group.desc,
+            descId: group.descId,
+            restrict: group.restrict,
+            announce: group.announce,
+            isCommunity: group.isCommunity,
+            isCommunityAnnounce: group.isCommunityAnnounce,
+            linkedParent: group.linkedParent,
+          };
 
-      if (getParticipants.getParticipants == 'true') {
-        result['participants'] = group.participants;
+          if (getParticipants.getParticipants == 'true') {
+            result['participants'] = group.participants ?? [];
+          }
+
+          groups = [...groups, result];
+        } catch (groupError) {
+          console.error(`Error processing group ${group?.id}:`, groupError);
+        }
       }
 
-      groups = [...groups, result];
+      return groups;
+    } catch (error) {
+      console.error(error);
+      return [];
     }
-
-    return groups;
   }
 
   public async inviteCode(id: GroupJid) {
