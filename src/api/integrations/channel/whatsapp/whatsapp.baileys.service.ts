@@ -5036,29 +5036,48 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   public async findParticipants(id: GroupJid) {
-    try {
-      const participants = (await this.client.groupMetadata(id.groupJid)).participants;
-      const contacts = await this.prismaRepository.contact.findMany({
-        where: { instanceId: this.instanceId, remoteJid: { in: participants.map((p) => p.id) } },
-      });
-      const parsedParticipants = participants.map((participant) => {
-        const contact = contacts.find((c) => c.remoteJid === participant.id);
-        return {
-          ...participant,
-          name: participant.name ?? contact?.pushName,
-          imgUrl: participant.imgUrl ?? contact?.profilePicUrl,
-        };
-      });
+    if (!id?.groupJid) {
+      return { participants: [] };
+    }
 
-      const usersContacts = parsedParticipants.filter((c) => c.id.includes('@s.whatsapp'));
-      if (usersContacts) {
+    try {
+      const metadata = await this.client.groupMetadata(id.groupJid);
+      const participants = metadata?.participants ?? [];
+
+      if (participants.length === 0) {
+        return { participants: [] };
+      }
+
+      const participantIds = participants.filter((p) => !!p?.id).map((p) => p.id);
+
+      const contacts = participantIds.length
+        ? await this.prismaRepository.contact.findMany({
+            where: { instanceId: this.instanceId, remoteJid: { in: participantIds } },
+          })
+        : [];
+
+      const parsedParticipants = participants
+        .filter((participant) => !!participant?.id)
+        .map((participant) => {
+          const contact = (contacts ?? []).find((c) => c.remoteJid === participant.id);
+          return {
+            ...participant,
+            name: participant.name ?? contact?.pushName,
+            imgUrl: participant.imgUrl ?? contact?.profilePicUrl,
+          };
+        });
+
+      const usersContacts = parsedParticipants.filter((c) => c.id?.includes('@s.whatsapp'));
+      if (usersContacts.length > 0) {
         await saveOnWhatsappCache(usersContacts.map((c) => ({ remoteJid: c.id })));
       }
 
       return { participants: parsedParticipants };
     } catch (error) {
       console.error(error);
-      throw new NotFoundException('No participants', error.toString());
+      // Falha ao buscar metadados (grupo indisponível, Baileys sem cache, Prisma indisponível, etc.):
+      // devolve lista vazia em vez de propagar 500.
+      return { participants: [] };
     }
   }
 
