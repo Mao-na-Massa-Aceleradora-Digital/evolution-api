@@ -17,11 +17,14 @@ const logger = new Logger('Validate');
 
 const PROTECTED_INSTANCE_FIELDS = ['instanceName', 'instanceId'] as const;
 
-function sanitizeUntrustedInput(source: Record<string, any> | undefined): Record<string, any> {
+function sanitizeUntrustedInput(
+  source: Record<string, any> | undefined,
+  protectedFields: readonly string[] = PROTECTED_INSTANCE_FIELDS,
+): Record<string, any> {
   if (!source || typeof source !== 'object') return {};
   const sanitized: Record<string, any> = {};
   for (const [key, value] of Object.entries(source)) {
-    if ((PROTECTED_INSTANCE_FIELDS as readonly string[]).includes(key)) {
+    if (protectedFields.includes(key)) {
       logger.warn(`Ignoring attempt to override protected field "${key}" via untrusted input`);
       continue;
     }
@@ -51,7 +54,9 @@ export abstract class RouterBroker {
     }
 
     if (request.originalUrl.includes('/instance/create')) {
-      Object.assign(instance, sanitizeUntrustedInput(body));
+      // /instance/create has no ":instanceName" in its path, so the name can only come from the
+      // body and must be allowed through. instanceId stays protected: it is server-generated.
+      Object.assign(instance, sanitizeUntrustedInput(body, ['instanceId']));
     }
 
     Object.assign(ref, body);
