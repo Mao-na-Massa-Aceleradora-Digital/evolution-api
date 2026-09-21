@@ -291,6 +291,9 @@ export class BaileysStartupService extends ChannelStartupService {
   // True only while a backoff-scheduled reconnect is being dispatched, so that connectToWhatsapp can
   // tell an automatic retry from an external connect request (/instance/connect, boot, watchdog).
   private _reconnectScheduled = false;
+
+  // Handle of the pending backoff retry, so logout/deletion can cancel it.
+  private _reconnectTimer: NodeJS.Timeout | null = null;
   // The numeric WhatsApp stream-error code that triggers the grace-period reconnect above.
   private static readonly STREAM_ERROR_CODE_RECONNECT = '515';
 
@@ -306,6 +309,14 @@ export class BaileysStartupService extends ChannelStartupService {
     // Mark instance as deleting to prevent reconnection attempts.
     this.isDeleting = true;
     this.endSession = true;
+
+    // Drop any retry still waiting on the backoff ladder, so it neither fires nor holds a timer.
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+    this._reconnectScheduled = false;
+    this._reconnectAttempts = 0;
 
     this.messageProcessor.onDestroy();
 
@@ -557,7 +568,17 @@ export class BaileysStartupService extends ChannelStartupService {
         this.logger.info(
           `Reconnecting in ${delay / 1000}s (attempt ${this._reconnectAttempts}/${BaileysStartupService.RECONNECT_MAX_ATTEMPTS}, status code ${statusCode})`,
         );
-        setTimeout(async () => {
+        this._reconnectTimer = setTimeout(async () => {
+          this._reconnectTimer = null;
+
+          // The ladder can wait up to five minutes, and the instance may have been logged out or
+          // deleted in the meantime. Reconnecting here would rebuild a socket for an instance the
+          // user deliberately shut down, after its credentials were already removed.
+          if (this.isDeleting || this.endSession) {
+            this.logger.info('Reconnect cancelled: instance was logged out or deleted while waiting');
+            return;
+          }
+
           this._reconnectScheduled = true;
           await this.connectToWhatsapp(this.phoneNumber);
         }, delay);
