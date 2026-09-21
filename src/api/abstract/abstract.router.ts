@@ -50,7 +50,10 @@ export abstract class RouterBroker {
     const instance = request.params as unknown as InstanceDto;
 
     if (request?.query && Object.keys(request.query).length > 0) {
-      Object.assign(instance, sanitizeUntrustedInput(request.query as Record<string, any>));
+      // /instance/fetchInstances has no ":instanceName" in its path either: it is a lookup route
+      // whose filter (instanceName or instanceId) legitimately arrives in the query string.
+      const queryProtectedFields = request.originalUrl.includes('/instance/fetchInstances') ? [] : undefined;
+      Object.assign(instance, sanitizeUntrustedInput(request.query as Record<string, any>, queryProtectedFields));
     }
 
     if (request.originalUrl.includes('/instance/create')) {
