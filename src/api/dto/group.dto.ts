@@ -26,6 +26,8 @@ export class GroupJid {
 
 export class GetParticipant {
   getParticipants: string;
+  /** Opt-in: 'false' não busca a foto de perfil de cada grupo em fetchAllGroups. */
+  getPictures?: string;
 }
 
 export class GroupInvite {

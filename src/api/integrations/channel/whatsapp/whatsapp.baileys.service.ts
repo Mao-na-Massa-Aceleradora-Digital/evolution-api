@@ -157,6 +157,7 @@ import { PassThrough, Readable } from 'stream';
 import { v4 } from 'uuid';
 
 import { BaileysMessageProcessor } from './baileysMessage.processor';
+import { buildGroupList } from './group-list';
 import { buildInteractiveBizNode, buildListBizNode, toNativeFlowButton } from './helpers/interactiveMessage.helper';
 import { useVoiceCallsBaileys } from './voiceCalls/useVoiceCallsBaileys';
 
@@ -5026,61 +5027,8 @@ export class BaileysStartupService extends ChannelStartupService {
 
     // profilePicture faz uma ida a rede por grupo; buscar sequencialmente com centenas
     // de grupos gera uma rajada de requests que a WhatsApp responde com rate-overlimit.
-    const CONCURRENCY = 5;
-    const groups: any[] = [];
-
-    for (let i = 0; i < fetch.length; i += CONCURRENCY) {
-      const batch = fetch.slice(i, i + CONCURRENCY);
-
-      const batchResults = await Promise.all(
-        batch.map(async (group) => {
-          if (!group) return null;
-
-          try {
-            const picture = await Promise.race([
-              this.profilePicture(group.id),
-              new Promise<{ wuid: string; profilePictureUrl: null }>((resolve) =>
-                setTimeout(() => resolve({ wuid: group.id, profilePictureUrl: null }), 8000),
-              ),
-            ]);
-
-            const result = {
-              id: group.id,
-              subject: group.subject,
-              subjectOwner: group.subjectOwner,
-              subjectTime: group.subjectTime,
-              pictureUrl: picture?.profilePictureUrl,
-              size: group.participants?.length ?? 0,
-              creation: group.creation,
-              owner: group.owner,
-              desc: group.desc,
-              descId: group.descId,
-              restrict: group.restrict,
-              announce: group.announce,
-              isCommunity: group.isCommunity,
-              isCommunityAnnounce: group.isCommunityAnnounce,
-              linkedParent: group.linkedParent,
-            };
-
-            if (getParticipants.getParticipants == 'true') {
-              result['participants'] = group.participants ?? [];
-            }
-
-            return result;
-          } catch (groupError) {
-            this.logger.error(`Error processing group ${group?.id}: ${groupError}`);
-            return null;
-          }
-        }),
-      );
-
-      groups.push(...batchResults.filter((result) => result !== null));
-
-      // Pausa curta entre lotes para nao disparar rate-overlimit em instancias com muitos grupos.
-      if (i + CONCURRENCY < fetch.length) {
-        await new Promise((resolve) => setTimeout(resolve, 300));
-      }
-    }
+    // getPictures=false (opt-in) pula as fotos: a lista sai de uma consulta so.
+    const groups = await buildGroupList(fetch, getParticipants, (id) => this.profilePicture(id), this.logger);
 
     return groups;
   }
